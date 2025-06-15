@@ -683,6 +683,296 @@ async function run() {
 
 
 
+        // Like/Unlike a Recommendation
+        // app.patch('/recommendations/:id/like', async (req, res) => {
+        //     const { userEmail } = req.body;
+        //     const recommendationId = new ObjectId(req.params.id);
+
+        //     const recommendation = await recommendationsCollection.findOne({ _id: recommendationId });
+        //     if (!recommendation) return res.status(404).send({ error: 'Recommendation not found' });
+
+        //     const alreadyLiked = recommendation.likes?.includes(userEmail);
+
+        //     const update = alreadyLiked
+        //         ? { $pull: { likes: userEmail } }
+        //         : { $addToSet: { likes: userEmail } };
+
+        //     await recommendationsCollection.updateOne({ _id: recommendationId }, update);
+
+        //     const updated = await recommendationsCollection.findOne({ _id: recommendationId });
+        //     res.send({ likes: updated.likes });
+        // });
+
+
+        // Like/Unlike a Recommendation and notify subscribers (Simplified)
+        app.patch('/recommendations/:id/like', async (req, res) => {
+            const { userEmail } = req.body;
+            const recommendationId = new ObjectId(req.params.id);
+
+            try {
+                const recommendation = await recommendationsCollection.findOne({ _id: recommendationId });
+                if (!recommendation) return res.status(404).send({ error: 'Recommendation not found' });
+
+                // Check if the user has already liked the recommendation
+                const alreadyLiked = recommendation.likes?.includes(userEmail);
+
+                // Prepare the update query based on like/unlike
+                const update = alreadyLiked
+                    ? { $pull: { likes: userEmail } }
+                    : { $addToSet: { likes: userEmail } };
+
+                // Apply the update to the recommendation
+                await recommendationsCollection.updateOne({ _id: recommendationId }, update);
+
+                // Fetch the updated recommendation
+                const updated = await recommendationsCollection.findOne({ _id: recommendationId });
+
+                // Prepare the email content for subscribers
+                const subject = `${userEmail} Liked a Recommendation`;
+                const message = `
+            <div style="font-family: 'Arial', sans-serif; background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
+                <h2 style="color: #007bff; text-align: center;">A Recommendation Was Liked</h2>
+                <p style="font-size: 16px; line-height: 1.6; color: #333;">
+                    The recommendation titled "<strong>${updated.recommendationTitle}</strong>" has been liked by <strong>${userEmail}</strong>.
+                </p>
+                <footer style="font-size: 14px; text-align: center; color: #888;">
+                    <p>© 2025 Recommend Product</p>
+                </footer>
+            </div>
+        `;
+
+                // Fetch all subscribers' emails
+                const subscribers = await subscriptionsCollection.find().toArray();
+                const subscriberEmails = subscribers.map(sub => sub.email);
+
+                // Send email notification to all subscribers
+                if (subscriberEmails.length > 0) {
+                    for (let email of subscriberEmails) {
+                        const mailOptions = {
+                            from: `"Recommend Product" <${process.env.EMAIL_USER}>`, // Use display name and email
+                            to: email, // Send to each subscriber
+                            subject: subject,
+                            html: message, // HTML formatted email for the liked recommendation
+                        };
+
+                        try {
+                            await transporter.sendMail(mailOptions);
+                            console.log(`Email sent to subscriber: ${email}`);
+                        } catch (emailError) {
+                            console.error(`Error sending email to ${email}:`, emailError);
+                            return res.status(500).json({ error: 'Failed to send email to some subscribers' });
+                        }
+                    }
+                }
+
+                res.send({ likes: updated.likes }); // Return the updated likes array
+            } catch (error) {
+                console.error('Error handling like/unlike action:', error);
+                res.status(500).json({ error: 'Failed to update likes' });
+            }
+        });
+
+
+
+
+        // /* ---------- Add a comment ---------- */
+        // app.post('/recommendations/:id/comment', async (req, res) => {
+        //     const recommendationId = new ObjectId(req.params.id);
+        //     const { user, text, timestamp } = req.body;
+
+        //     const comment = { _id: new ObjectId(), user, text, timestamp };
+
+        //     const result = await recommendationsCollection.updateOne(
+        //         { _id: recommendationId },
+        //         { $push: { comments: comment } }
+        //     );
+        //     res.send({ acknowledged: result.acknowledged, comment });
+        // });
+
+
+        /* ---------- Add a comment ---------- */
+        app.post('/recommendations/:id/comment', async (req, res) => {
+            const recommendationId = new ObjectId(req.params.id);
+            const { user, text } = req.body; // Removed timestamp, as it's not needed for email notification
+
+            // Create the comment object
+            const comment = { user, text };
+
+            try {
+                // Insert the comment into the recommendation's comments array
+                const result = await recommendationsCollection.updateOne(
+                    { _id: recommendationId },
+                    { $push: { comments: comment } }
+                );
+
+                // Fetch the recommendation details
+                const recommendation = await recommendationsCollection.findOne({ _id: recommendationId });
+
+                // Fetch the associated query details from the queries collection
+                const query = await queriesCollection.findOne({ _id: new ObjectId(recommendation.queryId) });
+
+                // Fetch all subscribers' emails
+                const subscribers = await subscriptionsCollection.find().toArray();
+                const subscriberEmails = subscribers.map(subscriber => subscriber.email);
+
+                // Prepare email content for subscribers with query and recommendation details
+                const subject = 'New Comment Added on Recommendation';
+                const message = `
+            <div style="font-family: 'Arial', sans-serif; background-color: #f8f9fa; padding: 20px; border-radius: 8px; display: flex; justify-content: space-between;">
+                <!-- Left Column: Query details -->
+                <div style="width: 45%; padding: 20px; background-color: #e0f7fa; border-radius: 8px;">
+                    <h3 style="color: #007bff;">Query</h3>
+                    <p><strong>Title:</strong> ${query.queryTitle}</p>
+                    <p><strong>Product Name:</strong> ${query.productName}</p>
+                    <p><strong>Reason for Boycott:</strong> ${query.boycottReason}</p>
+                </div>
+
+                <!-- Right Column: Recommendation and Comment details -->
+                <div style="width: 45%; padding: 20px; background-color: #ffeb3b; border-radius: 8px;">
+                    <h3 style="color: #007bff;">Recommendation</h3>
+                    <p><strong>Recommendation ID:</strong> ${recommendation._id}</p>
+                    <p><strong>Recommendation Title:</strong> ${recommendation.recommendationTitle}</p>
+                    <p><strong>Recommendation Details:</strong> ${recommendation.recommendationReason}</p>
+
+                    <h3 style="color: #28a745;">New Comment</h3>
+                    <p><strong>Added by:</strong> ${user}</p>
+                    <p><strong>Comment:</strong> ${text}</p>
+                </div>
+            </div>
+            <footer style="font-size: 14px; text-align: center; color: #888; margin-top: 20px;">
+                <p>© 2025 Recommend Product</p>
+            </footer>
+        `;
+
+                // Send email notification to all subscribers
+                if (subscriberEmails.length > 0) {
+                    for (let email of subscriberEmails) {
+                        const mailOptions = {
+                            from: `"Recommend Product" <${process.env.EMAIL_USER}>`, // Use your email or application name here
+                            to: email,
+                            subject: subject,
+                            html: message, // HTML formatted email for the comment notification
+                        };
+
+                        try {
+                            await transporter.sendMail(mailOptions);
+                            console.log(`Email sent to subscriber: ${email}`);
+                        } catch (emailError) {
+                            console.error(`Error sending email to ${email}:`, emailError);
+                        }
+                    }
+                }
+
+                // Send back the response with just the user and text of the comment
+                res.send({
+                    acknowledged: result.acknowledged,
+                    comment: { user, text },
+                });
+
+            } catch (error) {
+                console.error('Error adding comment:', error);
+                res.status(500).json({ error: 'Failed to add comment' });
+            }
+        });
+
+
+
+
+        /* ---------- Edit a comment ---------- */
+        app.patch('/recommendations/:recId/comment/:cmtId', async (req, res) => {
+            const recId = new ObjectId(req.params.recId);
+            const cmtId = new ObjectId(req.params.cmtId);
+            const { text } = req.body;
+
+            const result = await recommendationsCollection.updateOne(
+                { _id: recId, 'comments._id': cmtId },
+                { $set: { 'comments.$.text': text } }
+            );
+            res.send({ acknowledged: result.acknowledged });
+        });
+
+        /* ---------- Delete a comment ---------- */
+        app.delete('/recommendations/:recId/comment/:cmtId', async (req, res) => {
+            const recId = new ObjectId(req.params.recId);
+            const cmtId = new ObjectId(req.params.cmtId);
+
+            const result = await recommendationsCollection.updateOne(
+                { _id: recId },
+                { $pull: { comments: { _id: cmtId } } }
+            );
+            res.send({ acknowledged: result.acknowledged });
+        });
+
+
+
+        // single recommendation with likes and comments
+        // app.get('/recommendations/:id', async (req, res) => {
+        //     const recommendation = await recommendationsCollection.findOne({ _id: new ObjectId(req.params.id) });
+        //     res.send(recommendation);
+        // });
+
+
+
+        // Get Featured Recommendations
+        app.get('/recommendations/featured', async (req, res) => {
+            try {
+                const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+                // সব ডেটা আনো
+                const all = await recommendationsCollection.find({}).toArray();
+
+                const featured = all.filter(rec => {
+                    const hasLikes = Array.isArray(rec.likes) && rec.likes.length > 0;
+                    const hasComments = Array.isArray(rec.comments) && rec.comments.length > 0;
+
+                    let isRecent = false;
+                    try {
+                        const recDate = new Date(rec.timestamp);
+                        isRecent = recDate >= oneWeekAgo;
+                    } catch (e) {
+                        isRecent = false;
+                    }
+
+                    return hasLikes || hasComments || isRecent;
+                });
+
+                const limited = featured
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                    .slice(0, 6);
+
+                res.send(limited);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ error: 'Failed to fetch featured recommendations' });
+            }
+        });
+
+
+
+
+
+        app.get('/recommendations/top-rated', async (req, res) => {
+            try {
+                const topRecommendations = await recommendationsCollection.aggregate([
+                    {
+                        $addFields: {
+                            likesCount: { $size: { $ifNull: ["$likes", []] } }
+                        }
+                    },
+                    { $sort: { likesCount: -1, timestamp: -1 } },
+                    { $limit: 6 }
+                ]).toArray();
+
+                res.json(topRecommendations);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ error: 'Failed to fetch top rated recommendations' });
+            }
+        });
+
+
+
+
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
