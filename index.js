@@ -10,71 +10,8 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 // middleware
 
-app.use(cors({
-    origin: ['http://localhost:5173'],
-    credentials: true
-}));
+app.use(cors());
 app.use(express.json());
-app.use(cookieParser());
-
-
-
-
-// Firebase Admin 
-
-var admin = require("firebase-admin");
-var serviceAccount = require("./Fb_Admin_Key.json");
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-});
-
-
-
-
-// Api Validation logger
-
-const logger = (req, res, next) => {
-    console.log("inside the logger mmiddleware")
-    next();
-}
-
-const verifyToken = (req, res, next) => {
-    const token = req?.cookies?.token
-    console.log("cookie in the middleware", token)
-
-    if (!token) {
-        return res.status(401).send({ message: 'Unauthorized Access' })
-    }
-
-    // verify token
-
-    jwt.verify(token, process.env.JWT_ACCESS_SECRET, (error, decoded) => {
-        if (error) {
-            return res.status(401).send({ message: 'Unauthorized Access' })
-        }
-        req.decoded = decoded
-        next()
-    })
-}
-
-
-// Firebase Token Verify
-
-const verifyFirebaseToken = async (req, res, next) => {
-    const authHeader = req.headers?.authorization
-    const token = authHeader.split(' ')[1]
-    if (!token) {
-        return res.status(401).send({ message: 'Unauthorized Access' })
-    }
-    // console.log('Fb Token is', token)
-
-    const userInfo = await admin.auth().verifyIdToken(token);
-    console.log("inside Fb Token", userInfo);
-    req.tokenEmail = userInfo.email;
-    next()
-}
-
-
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.tks1y5a.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -97,6 +34,55 @@ const transporter = nodemailer.createTransport({
         pass: process.env.EMAIL_PASS,
     },
 });
+
+
+
+
+// Firbase Admin 
+
+const admin = require("firebase-admin");
+const serviceAccount = require("./Fb_Admin_Key.json");
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
+
+
+
+// Verify FireBase Token
+
+const verifyFireBaseToken = async (req, res, next) => {
+
+    const authHeader = req.headers?.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).send({ message: 'Unauthorized Access' })
+    }
+
+    const token = authHeader.split(' ')[1];
+    console.log("token in middleware", token)
+
+    if (!token) {
+        return res.status(401).send({ message: 'Unauthorized Access' })
+    }
+
+    try {
+        const decoded = await admin.auth().verifyIdToken(token)
+        console.log('decoded token', decoded)
+        req.decoded = decoded
+        next()
+    }
+    catch (error) {
+        return res.status(401).send({ message: 'Unauthorized Access' })
+    }
+
+
+
+}
+
+
+
+
 
 async function run() {
     try {
@@ -151,22 +137,6 @@ async function run() {
 
 
         // jwt token related api
-        app.post('/jwt', async (req, res) => {
-            const userData = req.body;
-
-            const token = jwt.sign(userData, process.env.JWT_ACCESS_SECRET,
-                { expiresIn: '1d' })
-
-            res.cookie('token', token, {
-                httpOnly: true,
-                secure: false
-            })
-
-            res.send({ success: true })
-        })
-
-
-
 
 
 
@@ -297,21 +267,38 @@ async function run() {
         });
 
 
+        // GET: Get all public queries (No token required)
+        app.get("/queries/all", async (req, res) => {
+            try {
+                const queries = await queriesCollection.find().toArray();
+
+                if (queries.length === 0) {
+                    return res.status(404).json({ message: 'No queries found' });
+                }
+
+                res.json(queries); // Return all public queries
+            } catch (error) {
+                console.error("Error fetching all queries:", error);
+                res.status(500).json({ message: "Server error while fetching all queries" });
+            }
+        });
+
+
+
 
         // GET: Get queries by user email
-        app.get("/queries", logger, verifyToken, verifyFirebaseToken, async (req, res) => {
+        app.get("/queries", verifyFireBaseToken, async (req, res) => {
+
+            // console.log("inside apis", req.headers)
 
             const email = req.query.email;
+
+            // console.log("inside the application api", req.cookies)
+
 
             if (email !== req.decoded.email) {
                 return res.status(403).send({ message: 'Forbiden Access' })
             }
-
-            if (req.tokenEmail != email) {
-                return res.status(403).send({ message: 'Forbiden Access' })
-            }
-
-            // console.log("inside the application api", req.cookies)
 
             if (email) {
                 const result = await queriesCollection.find({ userEmail: email }).toArray();
@@ -320,7 +307,6 @@ async function run() {
             const result = await queriesCollection.find().toArray();
             res.send(result);
         });
-
 
 
         // GET: Get recent queries or queries by email
@@ -356,12 +342,35 @@ async function run() {
 
 
         // Read (details by ID)
-        app.get('/queries/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
-            const post = await queriesCollection.findOne(query);
-            res.send(post);
+        // app.get('/queries/:id', async (req, res) => {
+        //     const id = req.params.id;
+        //     const query = { _id: new ObjectId(id) };
+        //     const post = await queriesCollection.findOne(query);
+        //     res.send(post);
+        // });
+
+
+        // GET: Get a single query
+        app.get('/queries/:id', verifyFireBaseToken, async (req, res) => {
+            const queryId = req.params.id;
+            const userEmail = req.headers['user-email'];
+            console.log(userEmail)
+
+            if (userEmail !== req.decoded.email) {
+                return res.status(403).send({ message: 'Forbidden Access' });
+            }
+
+            try {
+                const query = await queriesCollection.findOne({ _id: new ObjectId(queryId) });
+                if (!query) {
+                    return res.status(404).send({ message: 'Query not found' });
+                }
+                res.send(query);
+            } catch (error) {
+                res.status(500).send({ message: 'Server error fetching query' });
+            }
         });
+
 
 
         //  Increment Recommendation Count for a Query
@@ -555,29 +564,70 @@ async function run() {
 
 
         // GET /recommendations  — filter by queryId **OR** recommenderEmail
-        app.get('/recommendations', async (req, res) => {
+        // app.get('/recommendations', verifyFireBaseToken, async (req, res) => {
+        //     const { queryId, recommenderEmail } = req.query;
+
+        //     const userEmail = recommenderEmail;
+        //     console.log(userEmail)
+
+        //     if (userEmail !== req.decoded.email) {
+        //         return res.status(403).send({ message: 'Forbiden Access' })
+        //     }
+
+
+        //     if (!queryId && !recommenderEmail) {
+        //         return res
+        //             .status(400)
+        //             .json({ error: 'queryId or recommenderEmail is required' });
+        //     }
+
+        //     const filter = {};
+        //     if (queryId) filter.queryId = queryId;
+        //     if (recommenderEmail) filter.recommenderEmail = recommenderEmail;
+
+        //     const recs = await recommendationsCollection.find(filter).toArray();
+        //     res.send(recs);
+        // });
+
+
+        // GET /recommendations — filter by queryId or recommenderEmail
+        app.get('/recommendations', verifyFireBaseToken, async (req, res) => {
             const { queryId, recommenderEmail } = req.query;
 
+            // Firebase থেকে ডিকোড করা ইমেইল
+            const userEmail = req.decoded.email;
+
+            // Verify if the recommenderEmail is the same as the logged in user's email
+            if (recommenderEmail && recommenderEmail !== userEmail) {
+                return res.status(403).send({ message: 'Forbidden Access' });
+            }
+
             if (!queryId && !recommenderEmail) {
-                return res
-                    .status(400)
-                    .json({ error: 'queryId or recommenderEmail is required' });
+                return res.status(400).json({ error: 'queryId or recommenderEmail is required' });
             }
 
             const filter = {};
             if (queryId) filter.queryId = queryId;
             if (recommenderEmail) filter.recommenderEmail = recommenderEmail;
 
-            const recs = await recommendationsCollection.find(filter).toArray();
-            res.send(recs);
+            try {
+                const recs = await recommendationsCollection.find(filter).toArray();
+                res.send(recs);
+            } catch (err) {
+                console.error('Error fetching recommendations:', err);
+                res.status(500).json({ error: 'Error fetching recommendations' });
+            }
         });
 
 
 
-
-
-        app.get('/recommendations/for-me', async (req, res) => {
+        app.get('/recommendations/for-me', verifyFireBaseToken, async (req, res) => {
             const userEmail = req.query.email;
+
+            if (userEmail !== req.decoded.email) {
+                return res.status(403).send({ message: 'Forbiden Access' })
+            }
+
             if (!userEmail) return res.status(400).json({ error: 'email missing' });
 
             try {
