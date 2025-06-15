@@ -973,6 +973,175 @@ async function run() {
 
 
 
+
+        app.get('/stats', async (req, res) => {
+            try {
+                await client.connect();
+                const db = client.db('recommendProduct');
+
+                const queriesCount = await db.collection('queries').countDocuments();
+                const recommendationsCount = await db.collection('recommendations').countDocuments();
+
+                // Step 1: Get unique emails from 'queries' collection
+                const queryEmailsAgg = await db.collection('queries').aggregate([
+                    { $group: { _id: '$userEmail' } }
+                ]).toArray();
+
+                // Step 2: Get unique emails from 'recommendations' collection
+                const recommendationEmailsAgg = await db.collection('recommendations').aggregate([
+                    { $group: { _id: '$recommenderEmail' } }
+                ]).toArray();
+
+                // Step 3: Combine and deduplicate emails
+                const allEmails = [
+                    ...queryEmailsAgg.map(item => item._id),
+                    ...recommendationEmailsAgg.map(item => item._id),
+                ];
+                const uniqueEmails = new Set(allEmails);
+
+                const average = queriesCount > 0
+                    ? (recommendationsCount / queriesCount).toFixed(2)
+                    : 0;
+
+                res.json({
+                    totalQueries: queriesCount,
+                    totalRecommendations: recommendationsCount,
+                    uniqueUsers: uniqueEmails.size,
+                    averageRecommendations: average,
+                });
+            } catch (err) {
+                console.error('[ERROR in /stats]', err);
+                res.status(500).json({ message: 'Failed to fetch stats', error: err.message });
+            }
+        });
+
+
+
+
+        app.post('/reviews', async (req, res) => {
+            try {
+                // Extract with support for frontend keys
+                const {
+                    recommendationId,
+                    rating,
+                    reviewText,
+                    reviewerName,
+                    reviewerEmail,
+                    reviewerPhoto
+                } = req.body;
+
+                // Validate required fields
+                if (!recommendationId || !rating || !reviewText || !reviewerEmail) {
+                    return res.status(400).json({ message: 'Missing required fields' });
+                }
+
+                // Construct newReview using frontend's keys
+                const newReview = {
+                    recommendationId,
+                    userEmail: reviewerEmail,
+                    userName: reviewerName,
+                    userPhoto: reviewerPhoto,
+                    rating: parseInt(rating),
+                    comment: reviewText,
+                    createdAt: new Date()
+                };
+
+                // Insert review into the database
+                const result = await reviewsCollection.insertOne(newReview);
+
+                // Fetch recommendation details
+                const recommendation = await recommendationsCollection.findOne({ _id: new ObjectId(recommendationId) });
+
+                // Prepare email content to notify subscribers
+                const subject = 'New Review Added to Recommendation';
+                const message = `
+            <div style="font-family: 'Arial', sans-serif; background-color: #f8f9fa; padding: 20px; border-radius: 8px; display: flex; justify-content: space-between;">
+                <!-- Left Column: Recommendation details -->
+                <div style="width: 45%; padding: 20px; background-color: #e0f7fa; border-radius: 8px;">
+                    <h3 style="color: #007bff;">Recommendation</h3>
+                    <p><strong>Recommendation Title:</strong> ${recommendation.title}</p>
+                    <p><strong>Product Name:</strong> ${recommendation.productName}</p>
+                    <p><strong>Recommendation Details:</strong> ${recommendation.details}</p>
+                </div>
+
+                <!-- Right Column: Review details -->
+                <div style="width: 45%; padding: 20px; background-color: #ffeb3b; border-radius: 8px;">
+                    <h3 style="color: #007bff;">New Review</h3>
+                    <p><strong>Reviewed by:</strong> ${reviewerName}</p>
+                    <p><strong>Rating:</strong> ${rating} Stars</p>
+                    <p><strong>Review:</strong> ${reviewText}</p>
+                </div>
+            </div>
+            <footer style="font-size: 14px; text-align: center; color: #888; margin-top: 20px;">
+                <p>© 2025 Recommend Product</p>
+            </footer>
+        `;
+
+                // Fetch all subscribers' emails
+                const subscribers = await subscriptionsCollection.find().toArray();
+                const subscriberEmails = subscribers.map(subscriber => subscriber.email);
+
+                // Send email notification to all subscribers
+                if (subscriberEmails.length > 0) {
+                    for (let email of subscriberEmails) {
+                        const mailOptions = {
+                            from: `"Recommend Product" <${process.env.EMAIL_USER}>`, // Use your email or application name here
+                            to: email,
+                            subject: subject,
+                            html: message, // HTML formatted email for the review notification
+                        };
+
+                        try {
+                            await transporter.sendMail(mailOptions);
+                            console.log(`Email sent to subscriber: ${email}`);
+                        } catch (emailError) {
+                            console.error(`Error sending email to ${email}:`, emailError);
+                        }
+                    }
+                }
+
+                // Send back the response with just the review details
+                res.status(201).json({ insertedId: result.insertedId, review: { reviewerName, reviewText, rating } });
+
+            } catch (err) {
+                console.error('Review POST error:', err);
+                res.status(500).json({ message: 'Server error' });
+            }
+        });
+
+
+        // All Reviews Fetch API
+        app.get('/reviews', async (req, res) => {
+            try {
+                const reviews = await reviewsCollection.find().sort({ createdAt: -1 }).toArray();
+                res.status(200).json(reviews);
+            } catch (error) {
+                console.error("Failed to fetch reviews:", error);
+                res.status(500).json({ message: "Server error" });
+            }
+        });
+
+
+        // GET /reviews/by-recommendation/:id
+        app.get('/reviews/by-recommendation/:id', async (req, res) => {
+            const { id } = req.params;
+            if (!id) return res.status(400).json({ message: 'Recommendation ID required' });
+
+            try {
+                const reviews = await reviewsCollection
+                    .find({ recommendationId: id })  // Filter by recommendationId
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(reviews);
+            } catch (err) {
+                res.status(500).json({ message: 'Failed to fetch recommendation reviews' });
+            }
+        });
+
+
+
+
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
