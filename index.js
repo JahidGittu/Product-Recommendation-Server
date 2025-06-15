@@ -14,6 +14,7 @@ app.use(cors());
 app.use(express.json());
 
 
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.tks1y5a.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -102,41 +103,9 @@ async function run() {
         const subscriptionsCollection = client.db("recommendProduct").collection("subscriptions");
 
 
+        // Users
+        const UsersCollection = client.db("recommendProduct").collection("users");
 
-
-        // app.post('/jwt', async (req, res) => {
-        //     const { email } = req.body;
-        //     const user = email;
-        //     const token = jwt.sign(user, 'secret', { expiresIn: '1h' });
-        //     res.send({ token })
-        // })
-
-
-        // app.post('/jwt', async (req, res) => {
-        //     const { email } = req.body;
-
-        //     if (!email) {
-        //         return res.status(400).json({ message: "Email is required" }); // Ensure email is being sent
-        //     }
-
-        //     try {
-        //         const token = jwt.sign({ email }, process.env.JWT_ACCESS_SECRET, { expiresIn: '1d' });
-
-        //         res.cookie('token', token, {
-        //             httpOnly: true,
-        //             secure: false,
-
-        //         });
-
-        //         return res.json({ success: true, token });
-        //     } catch (error) {
-        //         console.error('JWT Error:', error);
-        //         return res.status(500).json({ message: 'Internal server error' });
-        //     }
-        // });
-
-
-        // jwt token related api
 
 
 
@@ -341,15 +310,6 @@ async function run() {
 
 
 
-        // Read (details by ID)
-        // app.get('/queries/:id', async (req, res) => {
-        //     const id = req.params.id;
-        //     const query = { _id: new ObjectId(id) };
-        //     const post = await queriesCollection.findOne(query);
-        //     res.send(post);
-        // });
-
-
         // GET: Get a single query
         app.get('/queries/:id', verifyFireBaseToken, async (req, res) => {
             const queryId = req.params.id;
@@ -465,18 +425,6 @@ async function run() {
 
 
 
-        // recommendations Post
-        // app.post('/recommendations', async (req, res) => {
-        //     const recommendation = {
-        //         ...req.body,
-        //         likes: req.body.likes ?? [],
-        //         comments: req.body.comments ?? [],
-        //     };
-        //     const result = await recommendationsCollection.insertOne(recommendation);
-        //     res.send(result);
-        // });
-
-
         // POST: Add a recommendation and send email notification to subscribers
         app.post('/recommendations', async (req, res) => {
             const newRecommendation = req.body;
@@ -562,32 +510,6 @@ async function run() {
             }
         });
 
-
-        // GET /recommendations  — filter by queryId **OR** recommenderEmail
-        // app.get('/recommendations', verifyFireBaseToken, async (req, res) => {
-        //     const { queryId, recommenderEmail } = req.query;
-
-        //     const userEmail = recommenderEmail;
-        //     console.log(userEmail)
-
-        //     if (userEmail !== req.decoded.email) {
-        //         return res.status(403).send({ message: 'Forbiden Access' })
-        //     }
-
-
-        //     if (!queryId && !recommenderEmail) {
-        //         return res
-        //             .status(400)
-        //             .json({ error: 'queryId or recommenderEmail is required' });
-        //     }
-
-        //     const filter = {};
-        //     if (queryId) filter.queryId = queryId;
-        //     if (recommenderEmail) filter.recommenderEmail = recommenderEmail;
-
-        //     const recs = await recommendationsCollection.find(filter).toArray();
-        //     res.send(recs);
-        // });
 
 
         // GET /recommendations — filter by queryId or recommenderEmail
@@ -733,27 +655,6 @@ async function run() {
 
 
 
-        // Like/Unlike a Recommendation
-        // app.patch('/recommendations/:id/like', async (req, res) => {
-        //     const { userEmail } = req.body;
-        //     const recommendationId = new ObjectId(req.params.id);
-
-        //     const recommendation = await recommendationsCollection.findOne({ _id: recommendationId });
-        //     if (!recommendation) return res.status(404).send({ error: 'Recommendation not found' });
-
-        //     const alreadyLiked = recommendation.likes?.includes(userEmail);
-
-        //     const update = alreadyLiked
-        //         ? { $pull: { likes: userEmail } }
-        //         : { $addToSet: { likes: userEmail } };
-
-        //     await recommendationsCollection.updateOne({ _id: recommendationId }, update);
-
-        //     const updated = await recommendationsCollection.findOne({ _id: recommendationId });
-        //     res.send({ likes: updated.likes });
-        // });
-
-
         // Like/Unlike a Recommendation and notify subscribers (Simplified)
         app.patch('/recommendations/:id/like', async (req, res) => {
             const { userEmail } = req.body;
@@ -823,21 +724,6 @@ async function run() {
         });
 
 
-
-
-        // /* ---------- Add a comment ---------- */
-        // app.post('/recommendations/:id/comment', async (req, res) => {
-        //     const recommendationId = new ObjectId(req.params.id);
-        //     const { user, text, timestamp } = req.body;
-
-        //     const comment = { _id: new ObjectId(), user, text, timestamp };
-
-        //     const result = await recommendationsCollection.updateOne(
-        //         { _id: recommendationId },
-        //         { $push: { comments: comment } }
-        //     );
-        //     res.send({ acknowledged: result.acknowledged, comment });
-        // });
 
 
         /* ---------- Add a comment ---------- */
@@ -953,13 +839,6 @@ async function run() {
             res.send({ acknowledged: result.acknowledged });
         });
 
-
-
-        // single recommendation with likes and comments
-        // app.get('/recommendations/:id', async (req, res) => {
-        //     const recommendation = await recommendationsCollection.findOne({ _id: new ObjectId(req.params.id) });
-        //     res.send(recommendation);
-        // });
 
 
 
@@ -1188,6 +1067,163 @@ async function run() {
                 res.status(500).json({ message: 'Failed to fetch recommendation reviews' });
             }
         });
+
+
+
+
+
+
+        // POST /users - Create or update user profile
+        app.post('/users', async (req, res) => {
+            const { userId, name, email, photo, gender, dob, phone, hobbies, address } = req.body;
+
+            if (!userId || !name || !email) {
+                return res.status(400).json({ message: 'Missing required fields: userId, name, or email' });
+            }
+
+            try {
+                // Check if the user already exists in the database
+                let userProfile = await UsersCollection.findOne({ userId });
+
+                if (userProfile) {
+                    // If user exists, update the profile (using $set to update only the fields provided)
+                    const updatedProfile = {
+                        name,
+                        email,
+                        photo,
+                        gender,
+                        dob,
+                        phone,
+                        hobbies,
+                        address
+                    };
+
+                    const result = await UsersCollection.updateOne(
+                        { userId },
+                        { $set: updatedProfile }
+                    );
+
+                    if (result.matchedCount === 0) {
+                        return res.status(404).json({ message: 'User not found' });
+                    }
+
+                    return res.status(200).json({ message: 'User profile updated successfully', updatedProfile });
+                } else {
+                    // If no profile found, create a new one
+                    const newUserProfile = {
+                        userId,
+                        name,
+                        email,
+                        photo,
+                        gender,
+                        dob,
+                        phone,
+                        hobbies,
+                        address
+                    };
+
+                    // Insert the new profile into the database
+                    await UsersCollection.insertOne(newUserProfile);
+                    return res.status(201).json({ message: 'User profile created successfully', newUserProfile });
+                }
+            } catch (error) {
+                console.error('Error while saving user profile:', error);
+                return res.status(500).json({ message: 'Server error', error: error.message });
+            }
+        });
+
+
+
+
+        // Backend - Express.js Code Example
+        app.get('/users/stats', async (req, res) => {
+            try {
+                // Get total users from the database
+                const totalUsers = await UsersCollection.countDocuments();  // Example query to count users
+
+                res.json({ totalUsers });
+            } catch (err) {
+                console.error('Failed to fetch user stats:', err);
+                res.status(500).json({ message: 'Failed to fetch user stats' });
+            }
+        });
+
+
+
+        // GET /users - Get user by email
+        app.get('/users', verifyFireBaseToken, async (req, res) => {
+            try {
+                const { email } = req.query;  // Getting email from query string
+
+                if (!email) {
+                    return res.status(400).json({ message: 'Email is required' });
+                }
+
+                // Find user by email
+                const user = await UsersCollection.findOne({ email });
+
+                // If user not found, return 404
+                if (!user) {
+                    return res.status(404).json({ message: 'User not found' });
+                }
+
+                // Return user data if found
+                res.json(user);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Server error' });
+            }
+        });
+
+
+
+        // PUT /users - Update user by email, or create a new one if not found
+        app.put('/users', verifyFireBaseToken, async (req, res) => {
+            try {
+                const { email, fullName, phone, address, gender, hobbies, photo, dob } = req.body;
+
+                console.log(email);
+
+                // Ensure email is provided
+                if (!email) {
+                    return res.status(400).json({ message: 'Email is required' });
+                }
+
+                // Use upsert to either update or create a new user
+                const updatedUser = await UsersCollection.findOneAndUpdate(
+                    { email },  // Find user by email
+                    {
+                        $set: {  // Use $set to update only specific fields
+                            fullName,
+                            phone,
+                            address,
+                            gender,
+                            hobbies,
+                            photo,
+                            dob
+                        }
+                    },
+                    {
+                        returnDocument: 'after',  // Return updated document
+                        upsert: true               // Create a new document if no match is found
+                    }
+                );
+
+                // If a new user is created, return the newly created user data
+                res.json(updatedUser.value);  // Return the updated user data (or newly created user)
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Server error' });
+            }
+        });
+
+
+
+
+
+
+
+
 
 
 
