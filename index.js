@@ -1,10 +1,10 @@
+require('dotenv').config()
 const express = require('express');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
-require('dotenv').config()
 const app = express();
-const jwt = require('jsonwebtoken')
-const cookieParser = require('cookie-parser')
+// const jwt = require('jsonwebtoken')
+// const cookieParser = require('cookie-parser')
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
@@ -61,7 +61,7 @@ const verifyFireBaseToken = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    console.log("token in middleware", token)
+    // console.log("token in middleware", token)
 
     if (!token) {
         return res.status(401).send({ message: 'Unauthorized Access' })
@@ -69,7 +69,7 @@ const verifyFireBaseToken = async (req, res, next) => {
 
     try {
         const decoded = await admin.auth().verifyIdToken(token)
-        console.log('decoded token', decoded)
+        // console.log('decoded token', decoded)
         req.decoded = decoded
         next()
     }
@@ -88,10 +88,9 @@ const verifyFireBaseToken = async (req, res, next) => {
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
 
         const queriesCollection = client.db("recommendProduct").collection("queries")
-
 
         // recommendations
         const recommendationsCollection = client.db("recommendProduct").collection("recommendations");
@@ -101,7 +100,6 @@ async function run() {
 
         // Subscriber Email
         const subscriptionsCollection = client.db("recommendProduct").collection("subscriptions");
-
 
         // Users
         const UsersCollection = client.db("recommendProduct").collection("users");
@@ -113,7 +111,7 @@ async function run() {
         // Subscribe API
         app.post('/subscribe', async (req, res) => {
             const { email } = req.body;
-            console.log("Subscribe Email Is", email)
+            // console.log("Subscribe Email Is", email)
 
             if (!email) {
                 return res.status(400).json({ message: 'Email is required' });
@@ -175,7 +173,7 @@ async function run() {
 
         app.post('/queries', async (req, res) => {
             const newQuery = req.body;
-            console.log(newQuery);
+            // console.log(newQuery);
 
             try {
                 // Insert the query in the database
@@ -220,7 +218,7 @@ async function run() {
 
                         try {
                             await transporter.sendMail(mailOptions);
-                            console.log(`Email sent to subscriber: ${email}`);
+                            // console.log(`Email sent to subscriber: ${email}`);
                         } catch (emailError) {
                             console.error(`Error sending email to ${email}:`, emailError);
                             return res.status(500).json({ error: 'Failed to send email to some subscribers' });
@@ -300,7 +298,7 @@ async function run() {
         // DELETE: Delete a query by id
         app.delete('/queries/:id', async (req, res) => {
             const id = req.params.id;
-            console.log(id)
+            // console.log(id)
             const toDelete = { _id: new ObjectId(id) };
             const result = await queriesCollection.deleteOne(toDelete);
             res.send(result);
@@ -314,7 +312,7 @@ async function run() {
         app.get('/queries/:id', verifyFireBaseToken, async (req, res) => {
             const queryId = req.params.id;
             const userEmail = req.headers['user-email'];
-            console.log(userEmail)
+            // console.log(userEmail)
 
             if (userEmail !== req.decoded.email) {
                 return res.status(403).send({ message: 'Forbidden Access' });
@@ -428,7 +426,7 @@ async function run() {
         // POST: Add a recommendation and send email notification to subscribers
         app.post('/recommendations', async (req, res) => {
             const newRecommendation = req.body;
-            console.log("New Recommendation:", newRecommendation);
+            // console.log("New Recommendation:", newRecommendation);
 
             try {
                 // Insert the recommendation into the database
@@ -473,7 +471,7 @@ async function run() {
 
                         try {
                             await transporter.sendMail(mailOptions);
-                            console.log(`Email sent to subscriber: ${email}`);
+                            // console.log(`Email sent to subscriber: ${email}`);
                         } catch (emailError) {
                             console.error(`Error sending email to ${email}:`, emailError);
                             return res.status(500).json({ error: 'Failed to send email to some subscribers' });
@@ -708,7 +706,7 @@ async function run() {
 
                         try {
                             await transporter.sendMail(mailOptions);
-                            console.log(`Email sent to subscriber: ${email}`);
+                            // console.log(`Email sent to subscriber: ${email}`);
                         } catch (emailError) {
                             console.error(`Error sending email to ${email}:`, emailError);
                             return res.status(500).json({ error: 'Failed to send email to some subscribers' });
@@ -792,7 +790,7 @@ async function run() {
 
                         try {
                             await transporter.sendMail(mailOptions);
-                            console.log(`Email sent to subscriber: ${email}`);
+                            // console.log(`Email sent to subscriber: ${email}`);
                         } catch (emailError) {
                             console.error(`Error sending email to ${email}:`, emailError);
                         }
@@ -1022,7 +1020,7 @@ async function run() {
 
                         try {
                             await transporter.sendMail(mailOptions);
-                            console.log(`Email sent to subscriber: ${email}`);
+                            // console.log(`Email sent to subscriber: ${email}`);
                         } catch (emailError) {
                             console.error(`Error sending email to ${email}:`, emailError);
                         }
@@ -1182,7 +1180,7 @@ async function run() {
             try {
                 const { email, fullName, phone, address, gender, hobbies, photo, dob } = req.body;
 
-                console.log(email);
+                // console.log(email);
 
                 // Ensure email is provided
                 if (!email) {
@@ -1229,8 +1227,8 @@ async function run() {
 
 
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
