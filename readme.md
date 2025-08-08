@@ -10,13 +10,6 @@ MongoDB is used as the database, and Firebase is integrated for secure authentic
 
 <hr>
 
-<h2>🌐 Live Server / API Endpoint</h2>
-
-<p><!-- যদি থাকে, তাহলে এখানে লাইভ API URL দিন --><br>
-API Base URL: <code>https://your-api-base-url.com/api</code></p>
-
-<hr>
-
 <h2>🚀 Key Features | প্রধান ফিচারসমূহ</h2>
 
 <ul>
